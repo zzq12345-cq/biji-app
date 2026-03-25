@@ -118,7 +118,7 @@ ${rawText}`;
 
   const messages = [{ role: "user", content: prompt }];
 
-  return callZhipuAPI("glm-4-plus", messages, {
+  return callZhipuAPI("glm-5", messages, {
     max_tokens: 8192,
     temperature: 0.2,
   });
@@ -136,7 +136,7 @@ ${content}`;
 
   const messages = [{ role: "user", content: prompt }];
 
-  return callZhipuAPI("glm-4-plus", messages, {
+  return callZhipuAPI("glm-5", messages, {
     max_tokens: 1024,
     temperature: 0.3,
   });

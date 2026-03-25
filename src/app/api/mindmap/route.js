@@ -43,7 +43,7 @@ ${content.slice(0, 3000)}`;
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "glm-4-plus",
+        model: "glm-5",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
         max_tokens: 4096,

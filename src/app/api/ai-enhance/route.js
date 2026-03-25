@@ -11,7 +11,7 @@ async function callAI(prompt, maxTokens = 4096) {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "glm-4-plus",
+      model: "glm-5",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3,
       max_tokens: maxTokens,
