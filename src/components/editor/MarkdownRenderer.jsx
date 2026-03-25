@@ -139,6 +139,53 @@ function renderMarkdownWithLatex(text) {
       continue;
     }
 
+    // 表格：检测 | 开头的行
+    if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
+      closeAllLists();
+      // 收集连续的表格行
+      const tableLines = [trimmed];
+      while (i + 1 < lines.length) {
+        const nextLine = lines[i + 1].trim();
+        if (nextLine.startsWith("|") && nextLine.endsWith("|")) {
+          tableLines.push(nextLine);
+          i++;
+        } else {
+          break;
+        }
+      }
+      // 解析表格
+      if (tableLines.length >= 2) {
+        const parseRow = (row) =>
+          row.split("|").slice(1, -1).map((c) => c.trim());
+        
+        const headerCells = parseRow(tableLines[0]);
+        // 检查第二行是否是分隔线 |---|---|
+        const isSeparator = /^\|[\s:]*-+[\s:]*(\|[\s:]*-+[\s:]*)*\|$/.test(tableLines[1]);
+        const dataStart = isSeparator ? 2 : 1;
+
+        let tableHtml = `<table><thead><tr>`;
+        for (const cell of headerCells) {
+          tableHtml += `<th>${inlineFormat(cell)}</th>`;
+        }
+        tableHtml += "</tr></thead><tbody>";
+
+        for (let r = dataStart; r < tableLines.length; r++) {
+          const cells = parseRow(tableLines[r]);
+          tableHtml += "<tr>";
+          for (const cell of cells) {
+            tableHtml += `<td>${inlineFormat(cell)}</td>`;
+          }
+          tableHtml += "</tr>";
+        }
+        tableHtml += "</tbody></table>";
+        htmlLines.push(tableHtml);
+      } else {
+        // 单行 | 不是表格，当段落处理
+        htmlLines.push(`<p>${inlineFormat(trimmed)}</p>`);
+      }
+      continue;
+    }
+
     // 普通段落
     closeAllLists();
     htmlLines.push(`<p>${inlineFormat(trimmed)}</p>`);
