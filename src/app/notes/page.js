@@ -14,9 +14,11 @@ import {
   Filter,
   Bell,
   Clock,
+  BarChart3,
 } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 import toast from "react-hot-toast";
 import styles from "./page.module.css";
 
@@ -178,6 +180,7 @@ export default function NotesPage() {
                 <span>{reviewCount} 条待复习</span>
               </button>
             )}
+            <ThemeToggle />
             <Button variant="primary" size="sm" icon={<Plus size={16} />} onClick={() => router.push("/")}>
               新建笔记
             </Button>

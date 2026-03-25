@@ -6,6 +6,7 @@ import { Sparkles, BookOpen, ArrowRight, Zap, FileOutput, Cloud } from "lucide-r
 import DropZone from "@/components/upload/DropZone";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 import { ProgressBar } from "@/components/ui/Loading";
 import toast from "react-hot-toast";
 import styles from "./page.module.css";
@@ -140,6 +141,7 @@ export default function HomePage() {
             >
               我的笔记
             </Button>
+            <ThemeToggle />
           </nav>
         </div>
       </header>
