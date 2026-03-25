@@ -2,33 +2,37 @@
 
 import styles from "./MindmapView.module.css";
 
-/**
- * 思维导图可视化组件（纯 CSS 树形结构）
- */
 export default function MindmapView({ data }) {
   if (!data) return null;
 
   return (
     <div className={styles.container}>
-      <div className={styles.tree}>
-        <MindmapNode node={data} isRoot />
-      </div>
-    </div>
-  );
-}
-
-function MindmapNode({ node, isRoot = false }) {
-  if (!node) return null;
-
-  return (
-    <div className={`${styles.node} ${isRoot ? styles.rootNode : ""}`}>
-      <div className={`${styles.nodeLabel} ${isRoot ? styles.rootLabel : ""}`}>
-        {node.title}
-      </div>
-      {node.children && node.children.length > 0 && (
-        <div className={styles.children}>
-          {node.children.map((child, i) => (
-            <MindmapNode key={i} node={child} />
+      <h2 className={styles.rootTitle}>{data.title}</h2>
+      {data.children && (
+        <div className={styles.grid}>
+          {data.children.map((branch, i) => (
+            <div key={i} className={styles.card}>
+              <div className={styles.cardHead}>
+                <span className={styles.num}>{String(i + 1).padStart(2, "0")}</span>
+                <h3 className={styles.cardTitle}>{branch.title}</h3>
+              </div>
+              {branch.children && (
+                <ul className={styles.list}>
+                  {branch.children.map((item, j) => (
+                    <li key={j} className={styles.item}>
+                      <span className={styles.itemText}>{item.title}</span>
+                      {item.children && item.children.length > 0 && (
+                        <ul className={styles.subList}>
+                          {item.children.map((sub, k) => (
+                            <li key={k} className={styles.subItem}>{sub.title}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           ))}
         </div>
       )}
