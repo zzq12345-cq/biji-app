@@ -19,6 +19,7 @@ import {
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import ThemeToggle from "@/components/ui/ThemeToggle";
+import LearningCalendar from "@/components/calendar/LearningCalendar";
 import toast from "react-hot-toast";
 import styles from "./page.module.css";
 
@@ -189,6 +190,9 @@ export default function NotesPage() {
       </header>
 
       <main className={styles.main}>
+        {/* Learning Calendar */}
+        <LearningCalendar notes={notes} />
+
         {/* Search */}
         <div className={styles.searchBar}>
           <Search size={18} className={styles.searchIcon} />
