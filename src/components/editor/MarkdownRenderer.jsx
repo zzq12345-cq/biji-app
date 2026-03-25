@@ -22,121 +22,154 @@ export default function MarkdownRenderer({ content, className = "" }) {
 }
 
 function renderMarkdownWithLatex(text) {
-  // Step 1: 先处理 LaTeX 块级公式 $$...$$
-  let result = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
+  // Step 1: 保护 LaTeX 块，避免被 Markdown 解析破坏
+  const latexBlocks = [];
+
+  // 块级公式 $$...$$
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
+    const id = `%%LATEX_BLOCK_${latexBlocks.length}%%`;
     try {
-      return `<div class="katex-display-wrapper">${katex.renderToString(
-        latex.trim(),
-        { displayMode: true, throwOnError: false }
-      )}</div>`;
+      latexBlocks.push(
+        `<div class="${styles.katexBlock}">${katex.renderToString(
+          latex.trim(),
+          { displayMode: true, throwOnError: false }
+        )}</div>`
+      );
     } catch {
-      return `<div class="katex-error">$$${latex}$$</div>`;
+      latexBlocks.push(`<div class="${styles.katexError}">$$${latex}$$</div>`);
     }
+    return id;
   });
 
-  // Step 2: 处理行内公式 $...$
-  result = result.replace(/\$([^\$\n]+?)\$/g, (_, latex) => {
+  // 行内公式 $...$
+  text = text.replace(/\$([^\$\n]+?)\$/g, (_, latex) => {
+    const id = `%%LATEX_INLINE_${latexBlocks.length}%%`;
     try {
-      return katex.renderToString(latex.trim(), {
-        displayMode: false,
-        throwOnError: false,
-      });
+      latexBlocks.push(
+        katex.renderToString(latex.trim(), {
+          displayMode: false,
+          throwOnError: false,
+        })
+      );
     } catch {
-      return `<span class="katex-error">$${latex}$</span>`;
+      latexBlocks.push(`<span class="${styles.katexError}">$${latex}$</span>`);
     }
+    return id;
   });
 
-  // Step 3: 处理 Markdown
-  const lines = result.split("\n");
+  // Step 2: 处理 Markdown 逐行解析
+  const lines = text.split("\n");
   const htmlLines = [];
-  let inList = false;
+  let listStack = []; // 用栈来追踪列表嵌套
+
+  function closeAllLists() {
+    while (listStack.length > 0) {
+      const tag = listStack.pop();
+      htmlLines.push(`</${tag}>`);
+    }
+  }
+
+  function closeList() {
+    if (listStack.length > 0) {
+      const tag = listStack.pop();
+      htmlLines.push(`</${tag}>`);
+    }
+  }
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
-
-    // 保留已渲染的 KaTeX（包含 HTML 标签的行）
-    if (line.includes("katex-display-wrapper")) {
-      if (inList) {
-        htmlLines.push("</ul>");
-        inList = false;
-      }
-      htmlLines.push(line);
-      continue;
-    }
-
     const trimmed = line.trim();
 
-    // 空行
+    // 空行：关闭列表
     if (!trimmed) {
-      if (inList) {
-        htmlLines.push("</ul>");
-        inList = false;
-      }
+      closeAllLists();
       continue;
     }
 
-    // Headings
-    if (trimmed.startsWith("### ")) {
-      if (inList) { htmlLines.push("</ul>"); inList = false; }
-      htmlLines.push(`<h3>${inlineFormat(trimmed.slice(4))}</h3>`);
-      continue;
-    }
-    if (trimmed.startsWith("## ")) {
-      if (inList) { htmlLines.push("</ul>"); inList = false; }
-      htmlLines.push(`<h2>${inlineFormat(trimmed.slice(3))}</h2>`);
-      continue;
-    }
-    if (trimmed.startsWith("# ")) {
-      if (inList) { htmlLines.push("</ul>"); inList = false; }
-      htmlLines.push(`<h1>${inlineFormat(trimmed.slice(2))}</h1>`);
+    // 已替换的 LaTeX 块级公式占位符
+    if (trimmed.startsWith("%%LATEX_BLOCK_")) {
+      closeAllLists();
+      const idx = parseInt(trimmed.match(/\d+/)[0]);
+      htmlLines.push(latexBlocks[idx] || trimmed);
       continue;
     }
 
-    // Horizontal rule
-    if (/^---+$/.test(trimmed)) {
-      if (inList) { htmlLines.push("</ul>"); inList = false; }
+    // Headings: 从 h6 到 h1 依次匹配（长前缀优先）
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)/);
+    if (headingMatch) {
+      closeAllLists();
+      const level = headingMatch[1].length;
+      const content = headingMatch[2];
+      htmlLines.push(`<h${level}>${inlineFormat(content)}</h${level}>`);
+      continue;
+    }
+
+    // 水平线
+    if (/^[-*_]{3,}$/.test(trimmed)) {
+      closeAllLists();
       htmlLines.push("<hr />");
       continue;
     }
 
-    // Unordered list
+    // 无序列表
     if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-      if (!inList) {
+      if (listStack.length === 0 || listStack[listStack.length - 1] !== "ul") {
         htmlLines.push("<ul>");
-        inList = true;
+        listStack.push("ul");
       }
       htmlLines.push(`<li>${inlineFormat(trimmed.slice(2))}</li>`);
       continue;
     }
 
-    // Ordered list
+    // 有序列表
     const olMatch = trimmed.match(/^(\d+)\.\s(.+)/);
     if (olMatch) {
-      if (!inList) {
+      if (listStack.length === 0 || listStack[listStack.length - 1] !== "ol") {
         htmlLines.push("<ol>");
-        inList = true;
+        listStack.push("ol");
       }
       htmlLines.push(`<li>${inlineFormat(olMatch[2])}</li>`);
       continue;
     }
 
-    // Paragraph
-    if (inList) { htmlLines.push("</ul>"); inList = false; }
+    // 引用块
+    if (trimmed.startsWith("> ")) {
+      closeAllLists();
+      htmlLines.push(`<blockquote><p>${inlineFormat(trimmed.slice(2))}</p></blockquote>`);
+      continue;
+    }
+
+    // 普通段落
+    closeAllLists();
     htmlLines.push(`<p>${inlineFormat(trimmed)}</p>`);
   }
 
-  if (inList) htmlLines.push("</ul>");
-  return htmlLines.join("\n");
+  closeAllLists();
+
+  // Step 3: 还原 LaTeX 占位符
+  let output = htmlLines.join("\n");
+  for (let i = 0; i < latexBlocks.length; i++) {
+    output = output.replace(`%%LATEX_BLOCK_${i}%%`, latexBlocks[i]);
+    output = output.replace(`%%LATEX_INLINE_${i}%%`, latexBlocks[i]);
+  }
+
+  return output;
 }
 
 function inlineFormat(text) {
   // Bold: **text**
   text = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  // Italic: *text*
+  // Italic: *text* (非贪婪，不匹配 **)
   text = text.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, "<em>$1</em>");
   // Code: `text`
   text = text.replace(/`([^`]+?)`/g, "<code>$1</code>");
   // Highlight: ==text==
   text = text.replace(/==(.+?)==/g, "<mark>$1</mark>");
+  // 删除线: ~~text~~
+  text = text.replace(/~~(.+?)~~/g, "<del>$1</del>");
+
+  // 还原可能残留的 LaTeX 占位符
+  text = text.replace(/%%LATEX_INLINE_(\d+)%%/g, (match) => match);
+
   return text;
 }
