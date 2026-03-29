@@ -165,12 +165,13 @@ function parseInlineFormatting(text) {
       continue;
     }
 
-    // LaTeX inline: replace $...$ with plain text in Word
-    const latexMatch = remaining.match(/\$(.+?)\$/);
+    // LaTeX inline: convert $...$ to OMML-inspired representation in Word
+    const latexMatch = remaining.match(/\$([^\$]+?)\$/);
     if (latexMatch) {
       const before = remaining.slice(0, latexMatch.index);
       if (before) runs.push({ text: before, bold: false, italic: false });
-      runs.push({ text: `[${latexMatch[1]}]`, bold: false, italic: true });
+      // 将 LaTeX 转为 Unicode Math 符号（Word 兼容）
+      runs.push({ text: latexToUnicode(latexMatch[1]), bold: false, italic: true });
       remaining = remaining.slice(latexMatch.index + latexMatch[0].length);
       continue;
     }
@@ -180,6 +181,62 @@ function parseInlineFormatting(text) {
   }
 
   return runs.length > 0 ? runs : [{ text, bold: false, italic: false }];
+}
+
+/**
+ * 简易 LaTeX → Unicode Math 符号转换（Word 兼容）
+ */
+function latexToUnicode(latex) {
+  return latex
+    .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)")
+    .replace(/\\sqrt\{([^}]*)\}/g, "√($1)")
+    .replace(/\\sqrt\[(\d+)\]\{([^}]*)\}/g, "$1√($2)")
+    .replace(/\\sum/g, "∑")
+    .replace(/\\prod/g, "∏")
+    .replace(/\\int/g, "∫")
+    .replace(/\\infty/g, "∞")
+    .replace(/\\pm/g, "±")
+    .replace(/\\mp/g, "∓")
+    .replace(/\\times/g, "×")
+    .replace(/\\div/g, "÷")
+    .replace(/\\leq?/g, "≤")
+    .replace(/\\geq?/g, "≥")
+    .replace(/\\neq?/g, "≠")
+    .replace(/\\approx/g, "≈")
+    .replace(/\\equiv/g, "≡")
+    .replace(/\\in/g, "∈")
+    .replace(/\\subset/g, "⊂")
+    .replace(/\\supset/g, "⊃")
+    .replace(/\\cup/g, "∪")
+    .replace(/\\cap/g, "∩")
+    .replace(/\\emptyset/g, "∅")
+    .replace(/\\partial/g, "∂")
+    .replace(/\\nabla/g, "∇")
+    .replace(/\\forall/g, "∀")
+    .replace(/\\exists/g, "∃")
+    .replace(/\\neg/g, "¬")
+    .replace(/\\Rightarrow/g, "⇒")
+    .replace(/\\Leftarrow/g, "⇐")
+    .replace(/\\Leftrightarrow/g, "⇔")
+    .replace(/\\rightarrow/g, "→")
+    .replace(/\\leftarrow/g, "←")
+    .replace(/\\alpha/g, "α")
+    .replace(/\\beta/g, "β")
+    .replace(/\\gamma/g, "γ")
+    .replace(/\\delta/g, "δ")
+    .replace(/\\epsilon/g, "ε")
+    .replace(/\\theta/g, "θ")
+    .replace(/\\lambda/g, "λ")
+    .replace(/\\mu/g, "μ")
+    .replace(/\\pi/g, "π")
+    .replace(/\\sigma/g, "σ")
+    .replace(/\\omega/g, "ω")
+    .replace(/\\phi/g, "φ")
+    .replace(/\\psi/g, "ψ")
+    .replace(/\^{([^}]*)}/g, "^($1)")
+    .replace(/_{([^}]*)}/g, "₍$1₎")
+    .replace(/\\(?!frac|sqrt|sum|prod|int|infty|pm|mp|times|div|le|ge|ne|approx|equiv|in|subset|supset|cup|cap|emptyset|partial|nabla|forall|exists|neg|Rightarrow|Leftarrow|Leftrightarrow|rightarrow|leftarrow|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|phi|psi)([a-zA-Z]+)/g, "$1")
+    .replace(/[{}]/g, "");
 }
 
 /**

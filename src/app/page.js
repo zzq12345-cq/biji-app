@@ -9,6 +9,7 @@ import Card from "@/components/ui/Card";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import { ProgressBar } from "@/components/ui/Loading";
 import toast from "react-hot-toast";
+import { saveNoteImages } from "@/lib/storage";
 import styles from "./page.module.css";
 
 export default function HomePage() {
@@ -71,7 +72,6 @@ export default function HomePage() {
           title: result.title,
           content: result.content,
           raw_text: result.rawText,
-          page_images: allImages.slice(0, 5), // 只保存前5页预览
         }),
       });
 
@@ -82,10 +82,15 @@ export default function HomePage() {
 
       // 如果是 localStorage 模式，直接跳转带着数据
       if (savedNote._storage === "local") {
-        // 存到 localStorage
+        // 存到 localStorage（不含图片）
         const notes = JSON.parse(localStorage.getItem("biji-notes") || "[]");
         notes.unshift(savedNote);
         localStorage.setItem("biji-notes", JSON.stringify(notes));
+      }
+
+      // 图片存入 IndexedDB（不走 localStorage）
+      if (allImages.length > 0) {
+        await saveNoteImages(savedNote.id, allImages);
       }
 
       setTimeout(() => {

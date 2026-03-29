@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import katex from "katex";
+import DOMPurify from "dompurify";
 import styles from "./MarkdownRenderer.module.css";
 
 /**
@@ -199,6 +200,20 @@ function renderMarkdownWithLatex(text) {
     output = output.replace(`%%LATEX_BLOCK_${i}%%`, latexBlocks[i]);
     output = output.replace(`%%LATEX_INLINE_${i}%%`, latexBlocks[i]);
   }
+
+  // Step 4: Sanitize HTML to prevent XSS (preserve KaTeX classes/styles)
+  output = DOMPurify.sanitize(output, {
+    ALLOWED_TAGS: [
+      "h1", "h2", "h3", "h4", "h5", "h6", "p", "br", "hr",
+      "strong", "em", "del", "mark", "code", "pre",
+      "ul", "ol", "li", "blockquote",
+      "table", "thead", "tbody", "tr", "th", "td",
+      "span", "div", "a",
+    ],
+    ALLOWED_ATTR: ["class", "style", "href", "target"],
+    ADD_TAGS: ["math", "mi", "mo", "mn", "mrow", "mfrac", "msup", "msub", "munder", "mover", "mtable", "mtr", "mtd", "mtext", "mspace", "mpadded", "mphantom", "mfenced", "msqrt", "mroot", "menclose", "mstyle", "semantics", "annotation"],
+    ADD_ATTR: ["aria-hidden", "aria-label"],
+  });
 
   return output;
 }

@@ -155,8 +155,10 @@ function setLocalNotes(notes) {
 
 function saveNoteLocal(noteData) {
   const notes = getLocalNotes();
+  // 图片数据不存 localStorage，由调用方存入 IndexedDB
+  const { page_images, ...noteDataWithoutImages } = noteData;
   const note = {
-    ...noteData,
+    ...noteDataWithoutImages,
     id: crypto.randomUUID(),
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

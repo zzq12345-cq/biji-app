@@ -26,6 +26,7 @@ import FormulaPanel from "@/components/editor/FormulaPanel";
 import MindmapView from "@/components/mindmap/MindmapView";
 import MarkdownRenderer from "@/components/editor/MarkdownRenderer";
 import { exportToWord, exportToPdf, downloadBlob } from "@/lib/export-utils";
+import { getNoteImages, deleteNoteImages } from "@/lib/storage";
 import toast from "react-hot-toast";
 import styles from "./page.module.css";
 
@@ -64,16 +65,34 @@ export default function NoteDetailPage({ params }) {
     try {
       const res = await fetch(`/api/notes/${id}`);
       if (res.ok) {
-        setNote(await res.json());
+        const data = await res.json();
+        // 从 IndexedDB 加载图片
+        const images = await getNoteImages(id);
+        if (images.length > 0) data.page_images = images;
+        setNote(data);
       } else {
         const local = JSON.parse(localStorage.getItem("biji-notes") || "[]");
         const found = local.find((n) => n.id === id);
-        found ? setNote(found) : (toast.error("笔记未找到"), router.push("/notes"));
+        if (found) {
+          const images = await getNoteImages(id);
+          if (images.length > 0) found.page_images = images;
+          setNote(found);
+        } else {
+          toast.error("笔记未找到");
+          router.push("/notes");
+        }
       }
     } catch {
       const local = JSON.parse(localStorage.getItem("biji-notes") || "[]");
       const found = local.find((n) => n.id === id);
-      found ? setNote(found) : (toast.error("加载失败"), router.push("/notes"));
+      if (found) {
+        const images = await getNoteImages(id);
+        if (images.length > 0) found.page_images = images;
+        setNote(found);
+      } else {
+        toast.error("加载失败");
+        router.push("/notes");
+      }
     } finally {
       setLoading(false);
     }
@@ -104,6 +123,7 @@ export default function NoteDetailPage({ params }) {
       await fetch(`/api/notes/${id}`, { method: "DELETE" });
       const local = JSON.parse(localStorage.getItem("biji-notes") || "[]");
       localStorage.setItem("biji-notes", JSON.stringify(local.filter((n) => n.id !== id)));
+      await deleteNoteImages(id);
       toast.success("笔记已删除");
       router.push("/notes");
     } catch { toast.error("删除失败"); }
@@ -131,20 +151,22 @@ export default function NoteDetailPage({ params }) {
     exportToPdf(note.title, htmlContent);
   };
 
-  // AI 摘要
+  // AI 摘要（流式）
   const handleSummary = async () => {
     if (!note?.content) return;
     setSummaryLoading(true);
     setActivePanel("summary");
+    setSummary("");
     try {
       const res = await fetch("/api/summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: note.content }),
+        body: JSON.stringify({ content: note.content, stream: true }),
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setSummary(data.summary);
+      if (!res.ok) throw new Error("摘要请求失败");
+
+      await consumeStream(res, (text) => setSummary(text));
+      toast.success("摘要完成");
     } catch (err) { toast.error("摘要失败: " + err.message); }
     finally { setSummaryLoading(false); }
   };
@@ -167,25 +189,62 @@ export default function NoteDetailPage({ params }) {
     finally { setMindmapLoading(false); }
   };
 
-  // AI 增强（续写/出题/纠错）
+  // AI 增强（续写/出题/纠错）— 流式
   const handleAiEnhance = async (action) => {
     if (!note?.content) return;
     setAiLoading(true);
     setActivePanel(action);
+    setAiResult((prev) => ({ ...prev, [action]: "" }));
     try {
       const res = await fetch("/api/ai-enhance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: note.content, action }),
+        body: JSON.stringify({ content: note.content, action, stream: true }),
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setAiResult((prev) => ({ ...prev, [action]: data.result }));
+      if (!res.ok) throw new Error("AI 请求失败");
+
+      let fullText = "";
+      await consumeStream(res, (text) => {
+        fullText = text;
+        setAiResult((prev) => ({ ...prev, [action]: text }));
+      });
       toast.success(action === "expand" ? "扩展完成" : action === "quiz" ? "出题完成" : "纠错完成");
     } catch (err) {
       toast.error("AI 处理失败: " + err.message);
     } finally { setAiLoading(false); }
   };
+
+  // SSE 流式消费工具
+  async function consumeStream(response, onChunk) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let accumulated = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const json = JSON.parse(data);
+          if (json.content) {
+            accumulated += json.content;
+            onChunk(accumulated);
+          }
+        } catch {
+          // skip
+        }
+      }
+    }
+  }
 
   // 标记为已复习
   const handleMarkReviewed = async () => {
@@ -196,9 +255,17 @@ export default function NoteDetailPage({ params }) {
 
   // 公式插入
   const handleFormulaInsert = (latex) => {
-    // 将公式追加到笔记内容末尾
-    const newContent = (note.content || "") + "\n" + latex;
-    updateNote({ content: newContent });
+    if (editorRef.current) {
+      // 确保编辑器处于编辑模式
+      if (!editorRef.current.isEditing()) {
+        editorRef.current.startEditing();
+      }
+      editorRef.current.insertAtCursor(latex);
+    } else {
+      // fallback: 追加到末尾
+      const newContent = (note.content || "") + "\n" + latex;
+      updateNote({ content: newContent });
+    }
     toast.success("公式已插入");
     setShowFormulaPanel(false);
   };

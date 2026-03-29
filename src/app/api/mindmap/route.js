@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-
-const ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4";
+import { callZhipuAPI } from "@/lib/zhipu";
 
 export async function POST(request) {
   try {
@@ -35,28 +34,10 @@ export async function POST(request) {
 笔记内容：
 ${content.slice(0, 3000)}`;
 
-    const apiKey = process.env.ZHIPU_API_KEY;
-    const response = await fetch(`${ZHIPU_API_BASE}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "glm-5",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.2,
-        max_tokens: 4096,
-      }),
+    const text = await callZhipuAPI("glm-5.1", [{ role: "user", content: prompt }], {
+      max_tokens: 4096,
+      temperature: 0.2,
     });
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`API 错误: ${err}`);
-    }
-
-    const data = await response.json();
-    let text = data.choices[0]?.message?.content || "";
 
     // 提取 JSON
     const jsonMatch = text.match(/\{[\s\S]*\}/);

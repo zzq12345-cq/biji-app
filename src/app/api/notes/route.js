@@ -55,7 +55,6 @@ export async function POST(request) {
         subject: noteData.subject || null,
         tags: noteData.tags || [],
         pdf_url: noteData.pdf_url || null,
-        page_images: noteData.page_images || [],
       }])
       .select()
       .single();

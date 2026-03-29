@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, forwardRef, useImperativeHandle } from "react";
 import styles from "./NoteEditor.module.css";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { Eye, Edit3, Save, ChevronLeft, ChevronRight } from "lucide-react";
@@ -8,18 +8,46 @@ import Button from "@/components/ui/Button";
 
 const LINES_PER_PAGE = 40; // 预览模式每页行数
 
-export default function NoteEditor({
+const NoteEditor = forwardRef(function NoteEditor({
   content,
   onChange,
   onSave,
   readOnly = false,
-}) {
+}, ref) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content || "");
   const [currentPage, setCurrentPage] = useState(0);
   const textareaRef = useRef(null);
   const saveTimerRef = useRef(null);
   const contentRef = useRef(null);
+
+  // 暴露 insertAtCursor 方法给父组件
+  useImperativeHandle(ref, () => ({
+    insertAtCursor: (text) => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        // 如果不在编辑模式，追加到末尾
+        const newContent = (editContent || content || "") + "\n" + text;
+        setEditContent(newContent);
+        if (onSave) onSave(newContent);
+        return;
+      }
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const current = editContent || content || "";
+      const newContent = current.slice(0, start) + text + current.slice(end);
+      setEditContent(newContent);
+      if (onChange) onChange(newContent);
+      autoSave(newContent);
+      // 恢复光标位置到插入文本之后
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = start + text.length;
+        textarea.focus();
+      }, 0);
+    },
+    isEditing: () => isEditing,
+    startEditing: () => setIsEditing(true),
+  }), [editContent, content, onSave, onChange, autoSave, isEditing]);
 
   useEffect(() => {
     setEditContent(content || "");
@@ -68,8 +96,27 @@ export default function NoteEditor({
     if (onSave) onSave(editContent);
   };
 
-  // Tab key support
+  // Tab key support + keyboard shortcuts
   const handleKeyDown = (e) => {
+    // Ctrl/Cmd shortcuts
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === "s") {
+        e.preventDefault();
+        if (onSave) onSave(editContent);
+        return;
+      }
+      if (e.key === "b") {
+        e.preventDefault();
+        wrapSelection("**", "**");
+        return;
+      }
+      if (e.key === "i") {
+        e.preventDefault();
+        wrapSelection("*", "*");
+        return;
+      }
+    }
+
     if (e.key === "Tab") {
       e.preventDefault();
       const start = e.target.selectionStart;
@@ -81,6 +128,24 @@ export default function NoteEditor({
         e.target.selectionStart = e.target.selectionEnd = start + 2;
       }, 0);
     }
+  };
+
+  // 在选中文字前后包裹标记
+  const wrapSelection = (before, after) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = editContent.slice(start, end);
+    const newContent = editContent.slice(0, start) + before + selected + after + editContent.slice(end);
+    setEditContent(newContent);
+    if (onChange) onChange(newContent);
+    autoSave(newContent);
+    setTimeout(() => {
+      textarea.selectionStart = start + before.length;
+      textarea.selectionEnd = end + before.length;
+      textarea.focus();
+    }, 0);
   };
 
   const goPage = (page) => {
@@ -177,4 +242,6 @@ export default function NoteEditor({
       </div>
     </div>
   );
-}
+});
+
+export default NoteEditor;

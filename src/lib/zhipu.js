@@ -4,9 +4,9 @@
  * GLM-5: 文本整理优化
  */
 
-const ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4";
+const ZHIPU_API_BASE = "https://open.bigmodel.cn/api/coding/paas/v4";
 
-async function callZhipuAPI(model, messages, options = {}) {
+export async function callZhipuAPI(model, messages, options = {}) {
   const apiKey = process.env.ZHIPU_API_KEY;
   if (!apiKey) {
     throw new Error("ZHIPU_API_KEY 未配置，请在 .env.local 中设置");
@@ -34,6 +34,31 @@ async function callZhipuAPI(model, messages, options = {}) {
 
   const data = await response.json();
   return data.choices[0]?.message?.content || "";
+}
+
+/**
+ * 流式调用智谱 AI — 返回 ReadableStream（SSE 格式）
+ */
+export function callZhipuAPIStream(model, messages, options = {}) {
+  const apiKey = process.env.ZHIPU_API_KEY;
+  if (!apiKey) {
+    throw new Error("ZHIPU_API_KEY 未配置，请在 .env.local 中设置");
+  }
+
+  return fetch(`${ZHIPU_API_BASE}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: options.temperature ?? 0.3,
+      max_tokens: options.max_tokens ?? 4096,
+      stream: true,
+    }),
+  });
 }
 
 /**
@@ -118,7 +143,7 @@ ${rawText}`;
 
   const messages = [{ role: "user", content: prompt }];
 
-  return callZhipuAPI("glm-5", messages, {
+  return callZhipuAPI("glm-5.1", messages, {
     max_tokens: 8192,
     temperature: 0.2,
   });
@@ -136,7 +161,7 @@ ${content}`;
 
   const messages = [{ role: "user", content: prompt }];
 
-  return callZhipuAPI("glm-5", messages, {
+  return callZhipuAPI("glm-5.1", messages, {
     max_tokens: 1024,
     temperature: 0.3,
   });
@@ -154,10 +179,78 @@ ${content.slice(0, 500)}`;
 
   const messages = [{ role: "user", content: prompt }];
 
-  const title = await callZhipuAPI("glm-4-plus", messages, {
+  const title = await callZhipuAPI("glm-5.1", messages, {
     max_tokens: 64,
     temperature: 0.3,
   });
 
   return title.replace(/["""'''\n]/g, "").trim();
+}
+
+/**
+ * 分块处理长内容 — 超过字数限制时分块摘要再合并
+ * @param {string} content - 完整笔记内容
+ * @param {number} maxChunk - 每块最大字符数
+ * @returns {Promise<string>} 合并后的摘要
+ */
+export async function chunkAndSummarize(content, maxChunk = 2500) {
+  if (content.length <= maxChunk) return content;
+
+  const chunks = [];
+  for (let i = 0; i < content.length; i += maxChunk) {
+    chunks.push(content.slice(i, i + maxChunk));
+  }
+
+  // 逐块生成摘要
+  const summaries = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const prompt = `请简要概括以下笔记内容的核心要点（200字以内）：
+
+[第 ${i + 1}/${chunks.length} 部分]
+${chunks[i]}`;
+
+    const summary = await callZhipuAPI("glm-5.1", [{ role: "user", content: prompt }], {
+      max_tokens: 1024,
+      temperature: 0.2,
+    });
+    summaries.push(summary);
+  }
+
+  // 如果只有一块摘要，直接返回
+  if (summaries.length === 1) return summaries[0];
+
+  // 合并所有摘要
+  const combined = summaries.join("\n\n");
+  const mergePrompt = `以下是分段概括的笔记内容，请合并为一个连贯的完整摘要：
+
+${combined}`;
+
+  return callZhipuAPI("glm-5.1", [{ role: "user", content: mergePrompt }], {
+    max_tokens: 2048,
+    temperature: 0.2,
+  });
+}
+
+/**
+ * 基于内容推荐科目
+ * @param {string} content - 笔记内容
+ * @returns {Promise<string>} 推荐科目名称
+ */
+export async function detectSubject(content) {
+  const prompt = `请根据以下笔记内容，判断最可能的学科。从以下选项中选择一个：
+高等数学、线性代数、概率统计、大学物理、计算机网络、数据结构、操作系统、其他
+
+只输出科目名称，不要解释。
+
+笔记内容：
+${content.slice(0, 1000)}`;
+
+  const result = await callZhipuAPI("glm-5.1", [{ role: "user", content: prompt }], {
+    max_tokens: 32,
+    temperature: 0.1,
+  });
+
+  const subjects = ["高等数学", "线性代数", "概率统计", "大学物理", "计算机网络", "数据结构", "操作系统", "其他"];
+  const cleaned = result.replace(/["""'''\n]/g, "").trim();
+  return subjects.find((s) => cleaned.includes(s)) || "其他";
 }

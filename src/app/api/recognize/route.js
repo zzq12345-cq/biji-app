@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { recognizeImage, organizeContent, generateTitle } from "@/lib/zhipu";
+import { recognizeImage, organizeContent, generateTitle, detectSubject } from "@/lib/zhipu";
 
 export const maxDuration = 120;
 
@@ -14,16 +14,27 @@ export async function POST(request) {
       );
     }
 
-    // Step 1: 逐页 OCR 识别
-    const rawTexts = [];
-    for (let i = 0; i < images.length; i++) {
-      try {
-        const text = await recognizeImage(images[i]);
-        rawTexts.push(text);
-      } catch (err) {
-        console.error(`第 ${i + 1} 页识别失败:`, err);
-        rawTexts.push(`[第 ${i + 1} 页识别失败]`);
-      }
+    // Step 1: 并行 OCR 识别（3 页并发）
+    const CONCURRENCY = 3;
+    const rawTexts = new Array(images.length).fill("");
+
+    for (let i = 0; i < images.length; i += CONCURRENCY) {
+      const batch = images.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map((img, batchIdx) => {
+          const pageIdx = i + batchIdx;
+          return recognizeImage(img).catch((err) => {
+            console.error(`第 ${pageIdx + 1} 页识别失败:`, err);
+            return `[第 ${pageIdx + 1} 页识别失败]`;
+          });
+        })
+      );
+      results.forEach((result, batchIdx) => {
+        const pageIdx = i + batchIdx;
+        rawTexts[pageIdx] = result.status === "fulfilled"
+          ? result.value
+          : `[第 ${pageIdx + 1} 页识别失败]`;
+      });
     }
 
     const combinedRawText = rawTexts
@@ -47,11 +58,20 @@ export async function POST(request) {
       title = `笔记 ${new Date().toLocaleDateString("zh-CN")}`;
     }
 
+    // Step 4: 自动推荐科目
+    let subjectRecommend = null;
+    try {
+      subjectRecommend = await detectSubject(organizedContent);
+    } catch (err) {
+      // 科目识别失败不影响主流程
+    }
+
     return NextResponse.json({
       title,
       rawText: combinedRawText,
       content: organizedContent,
       pageCount: images.length,
+      subject_recommend: subjectRecommend,
     });
   } catch (error) {
     console.error("识别 API 错误:", error);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Sparkles,
@@ -64,10 +64,27 @@ export default function NotesPage() {
   const [search, setSearch] = useState("");
   const [selectedSubject, setSelectedSubject] = useState("全部");
   const [showReviewOnly, setShowReviewOnly] = useState(false);
+  const [displayCount, setDisplayCount] = useState(20);
+  const sentinelRef = useRef(null);
 
   useEffect(() => {
     loadNotes();
   }, []);
+
+  // 懒加载：滚动到底部自动加载更多
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setDisplayCount((prev) => prev + 20);
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [notes]);
 
   const loadNotes = async () => {
     setLoading(true);
@@ -239,7 +256,7 @@ export default function NotesPage() {
           </div>
         ) : (
           <div className={styles.grid}>
-            {filteredNotes.map((note, i) => {
+            {filteredNotes.slice(0, displayCount).map((note, i) => {
               const review = getReviewStatus(note);
               return (
                 <Card
@@ -296,6 +313,9 @@ export default function NotesPage() {
                 </Card>
               );
             })}
+            {displayCount < filteredNotes.length && (
+              <div ref={sentinelRef} style={{ height: 1 }} />
+            )}
           </div>
         )}
       </main>

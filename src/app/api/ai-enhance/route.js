@@ -1,32 +1,14 @@
-import { NextResponse } from "next/server";
+import { callZhipuAPI, callZhipuAPIStream, chunkAndSummarize } from "@/lib/zhipu";
 
-const ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4";
-
-async function callAI(prompt, maxTokens = 4096) {
-  const apiKey = process.env.ZHIPU_API_KEY;
-  const response = await fetch(`${ZHIPU_API_BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "glm-5",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.3,
-      max_tokens: maxTokens,
-    }),
-  });
-  if (!response.ok) throw new Error(`API 错误: ${await response.text()}`);
-  const data = await response.json();
-  return data.choices[0]?.message?.content || "";
-}
-
-// AI 续写/扩展
 export async function POST(request) {
   try {
-    const { content, action } = await request.json();
-    if (!content) return NextResponse.json({ error: "内容不能为空" }, { status: 400 });
+    const { content, action, stream } = await request.json();
+    if (!content) return Response.json({ error: "内容不能为空" }, { status: 400 });
+
+    // 长内容分块处理
+    const effectiveContent = content.length > 3000
+      ? await chunkAndSummarize(content)
+      : content;
 
     let prompt;
     switch (action) {
@@ -34,7 +16,7 @@ export async function POST(request) {
         prompt = `请对以下课堂笔记内容进行详细扩展解释，补充相关知识点、公式推导过程和典型例题。用 Markdown 格式输出，公式用 LaTeX（$..$ 行内，$$...$$ 独立）。
 
 笔记内容：
-${content.slice(0, 3000)}`;
+${effectiveContent}`;
         break;
 
       case "quiz":
@@ -48,7 +30,7 @@ ${content.slice(0, 3000)}`;
 5. 用 Markdown 格式输出
 
 笔记内容：
-${content.slice(0, 3000)}`;
+${effectiveContent}`;
         break;
 
       case "check":
@@ -61,17 +43,85 @@ ${content.slice(0, 3000)}`;
 4. 用 Markdown 格式输出
 
 笔记内容：
-${content.slice(0, 3000)}`;
+${effectiveContent}`;
         break;
 
       default:
-        return NextResponse.json({ error: "未知操作" }, { status: 400 });
+        return Response.json({ error: "未知操作" }, { status: 400 });
     }
 
-    const result = await callAI(prompt);
-    return NextResponse.json({ result });
+    // 流式输出
+    if (stream) {
+      const response = await callZhipuAPIStream("glm-5.1", [{ role: "user", content: prompt }], {
+        max_tokens: 4096,
+        temperature: 0.3,
+      });
+
+      if (!response.ok) {
+        return Response.json({ error: "AI 调用失败" }, { status: 500 });
+      }
+
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || "";
+
+              for (const line of lines) {
+                if (!line.startsWith("data:")) continue;
+                const data = line.slice(5).trim();
+                if (data === "[DONE]") {
+                  controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                  continue;
+                }
+                try {
+                  const json = JSON.parse(data);
+                  const content = json.choices?.[0]?.delta?.content;
+                  if (content) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content })}\n\n`));
+                  }
+                } catch {
+                  // 跳过非 JSON 行
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Stream error:", e);
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
+
+    // 非流式 fallback
+    const result = await callZhipuAPI("glm-5.1", [{ role: "user", content: prompt }], {
+      max_tokens: 4096,
+      temperature: 0.3,
+    });
+
+    return Response.json({ result });
   } catch (error) {
     console.error("AI 增强失败:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return Response.json({ error: error.message }, { status: 500 });
   }
 }
